@@ -19,9 +19,10 @@ sudo MYVPN_INSTALL_DIR=/opt/my-vpn-prod bash ./install.sh
 | 脚本 | 用途 / 使用方式 |
 |---|---|
 | `install.sh` | 首次安装或迁移到 VLESS + REALITY；自动备份、安装依赖、生成服务端配置和客户端文件。需 root；默认目标 `/opt/my-vpn`，可用 `MYVPN_INSTALL_DIR` 自定义。 |
+| `lib.sh` | 公共函数库，供安装和生成脚本调用；不需要手动执行。包含公网 IPv4 探测、地址校验和安全更新 `server.env` 的函数。 |
 | `backup.sh` | 备份项目目录、sing-box 配置、Nginx 站点和网络规则快照。`sudo ./backup.sh`；仅输出备份路径可用 `sudo ./backup.sh --path-only`。 |
 | `apply-config.sh` | 从当前目录的 `server.env` 生成并校验 `/etc/sing-box/config.json`，重启服务；失败时尝试回滚。`sudo ./apply-config.sh`。 |
-| `generate-config.sh` | 更新 `client/vless.txt`、`client/subscribe.txt`、`client/sing-box.json`、`client/clash.yaml`，并按配置更新 HTTP 订阅文件。`sudo ./generate-config.sh`。 |
+| `generate-config.sh` | 自动刷新公网 IPv4，必要时补齐缺失的 UUID/REALITY 密钥并同步服务端配置，再生成 `client/vless.txt`、`client/subscribe.txt`、`client/sing-box.json`、`client/clash.yaml` 和可选二维码。`sudo ./generate-config.sh`。 |
 | `nginx-setup.sh` | 配置/更新项目专用的 Nginx 订阅站点，校验后重载；不删除默认站点。`sudo ./nginx-setup.sh`。 |
 | `firewall.sh` | 管理项目标记的 UFW 规则。查看用法：`sudo ./firewall.sh`；`ensure SSH端口 代理端口 HTTP订阅端口` 添加缺失规则，`remove` 移除所有带项目标记的规则，`rollback 文件` 回滚指定 journal。`remove` 会移除该项目标记的全部规则，请谨慎使用。 |
 | `healthcheck.sh` | 检查 sing-box 配置、服务、自启动、监听端口及订阅 HTTP 状态。`sudo ./healthcheck.sh`。 |
@@ -38,7 +39,11 @@ sudo ./healthcheck.sh
 sudo ./generate-config.sh
 ```
 
-服务端配置在 `server.env`，修改端口或 Reality 参数后执行：
+服务端配置在 `server.env`。安装时和每次执行 `generate-config.sh` 时，脚本都会尝试自动获取 VPS 的公网 IPv4，并更新 `PUBLIC_IP`；如果外部探测服务不可用，会在已有地址有效时回退使用并给出警告。通常不需要手动填写 `PUBLIC_IP`。
+
+如果 `VLESS_UUID` 为空，生成脚本会先尝试从现有 sing-box 配置恢复；无法恢复时才创建新的 UUID。缺失 REALITY 密钥时会生成完整密钥对，然后调用 `apply-config.sh` 同步服务端，避免客户端配置与服务端凭据不一致。
+
+修改端口或 Reality 参数后执行：
 
 ```bash
 sudo ./apply-config.sh
@@ -56,6 +61,12 @@ sudo ./healthcheck.sh
 - `client/clash.yaml`：兼容 **Mihomo / Clash.Meta** 的配置，支持 VLESS + REALITY；不保证旧版 Clash 内核兼容。
 
 生成的客户端文件含认证信息，请勿公开分享。`server.env` 含 REALITY 私钥，同样需要保密。
+
+## 首次安装与目录改名提醒
+
+- 请运行安装目录中的 `install.sh` 完成首次安装，不要把 `server.env.example` 直接复制成运行配置后只执行生成脚本。生成脚本能修复空凭据，但运行环境仍需先安装 `sing-box`、`jq` 等依赖。
+- 自动获取公网 IPv4 需要 VPS 可以访问外部 HTTPS 地址。如果探测失败且 `server.env` 也没有有效的已保存地址，脚本会明确报错，不会生成带空 IP 的客户端文件。
+- `generate-config.sh` 会在必要时应用服务端配置并可能重启 sing-box；如果此前缺失的是服务器正在使用的 UUID/密钥，恢复/初始化后旧客户端凭据可能失效，需要重新导入新生成的客户端文件。
 
 ## 重要限制
 

@@ -9,7 +9,9 @@ INSTALL_COMMITTED=false
 INSTALLER_TMP=""
 
 [[ "$(id -u)" -eq 0 ]] || { echo "ERROR: run as root: sudo bash install.sh" >&2; exit 1; }
-[[ -f "$SCRIPT_DIR/apply-config.sh" && -f "$SCRIPT_DIR/generate-config.sh" ]] || { echo "ERROR: incomplete project directory: $SCRIPT_DIR" >&2; exit 1; }
+[[ -f "$SCRIPT_DIR/apply-config.sh" && -f "$SCRIPT_DIR/generate-config.sh" && -f "$SCRIPT_DIR/lib.sh" ]] || { echo "ERROR: incomplete project directory: $SCRIPT_DIR" >&2; exit 1; }
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 case "$SCRIPT_DIR/" in "$PROJECT_DIR/"*) echo "ERROR: run install.sh from a separate staging directory, not inside the installation directory ($PROJECT_DIR)." >&2; exit 1 ;; esac
 
 rollback_install() {
@@ -122,12 +124,12 @@ if [[ -f "$ENV_FILE" ]]; then
   if [[ "$OLD_PROTOCOL" == "vless-reality" ]]; then OLD_SERVER_PORT="${SERVER_PORT:-443}"; fi
 fi
 
-PUBLIC_IP="$OLD_PUBLIC_IP"
-if [[ -z "$PUBLIC_IP" ]]; then
-  PUBLIC_IP="$(curl -4 -fsSL --connect-timeout 5 --max-time 10 https://api.ipify.org || true)"
+PUBLIC_IP="$(myvpn_detect_public_ipv4 || true)"
+if [[ -z "$PUBLIC_IP" ]] && myvpn_is_ipv4 "$OLD_PUBLIC_IP"; then
+  PUBLIC_IP="$OLD_PUBLIC_IP"
+  echo "WARNING: public IPv4 auto-detection failed; reusing saved PUBLIC_IP=$PUBLIC_IP." >&2
 fi
-[[ -n "$PUBLIC_IP" ]] || { echo "ERROR: could not detect public IPv4; set PUBLIC_IP in $ENV_FILE and rerun." >&2; exit 1; }
-[[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "ERROR: PUBLIC_IP must be an IPv4 address for this profile." >&2; exit 1; }
+myvpn_is_ipv4 "$PUBLIC_IP" || { echo "ERROR: could not detect a valid public IPv4 address. Check outbound HTTPS from the VPS and rerun install.sh." >&2; exit 1; }
 
 VLESS_UUID="$OLD_REALITY_UUID"
 REALITY_PRIVATE_KEY="$OLD_REALITY_PRIVATE"
