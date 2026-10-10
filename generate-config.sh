@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 中文说明：根据 server.env 同步服务端配置，并生成 VLESS 链接、订阅、sing-box 与 Clash/Mihomo 配置。
+# 生成的 client/ 文件含认证信息，请勿公开分享。
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,18 +11,19 @@ PUBLIC_DIR="/var/www/my-vpn"
 CONFIG_FILE="/etc/sing-box/config.json"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "ERROR: run as root: sudo ./generate-config.sh" >&2; exit 1; }
-[[ -f "$ENV_FILE" ]] || { echo "ERROR: $ENV_FILE not found. Run install.sh first; do not use server.env.example as server.env." >&2; exit 1; }
+[[ -f "$ENV_FILE" ]] || { echo "ERROR: $ENV_FILE not found. Run install.sh first." >&2; exit 1; }
 [[ -f "$PROJECT_DIR/lib.sh" ]] || { echo "ERROR: $PROJECT_DIR/lib.sh not found. Replace the project files with the complete package." >&2; exit 1; }
+
 # shellcheck source=lib.sh
 source "$PROJECT_DIR/lib.sh"
 command -v jq >/dev/null 2>&1 || { echo "ERROR: jq is missing; run install.sh first." >&2; exit 1; }
 command -v sing-box >/dev/null 2>&1 || { echo "ERROR: sing-box is missing; run install.sh first." >&2; exit 1; }
 
-# Load saved settings. Credentials are repaired only when missing. In particular,
-# try to recover a missing UUID from the active server config before creating a new one.
+# 读取已保存设置；凭据缺失时先恢复现有 UUID，再考虑生成新 UUID。
 # shellcheck disable=SC1090
 source "$ENV_FILE"
-SERVER_PORT="${SERVER_PORT:-443}"
+# 中文说明：兼容旧配置的小写 server_port；没有设置时默认使用 18388。
+SERVER_PORT="${SERVER_PORT:-${server_port:-18388}}"
 REALITY_SNI="${REALITY_SNI:-www.microsoft.com}"
 REALITY_HANDSHAKE_SERVER="${REALITY_HANDSHAKE_SERVER:-$REALITY_SNI}"
 REALITY_HANDSHAKE_PORT="${REALITY_HANDSHAKE_PORT:-443}"
@@ -34,7 +37,7 @@ REALITY_PUBLIC_KEY="${REALITY_PUBLIC_KEY:-}"
 REALITY_SHORT_ID="${REALITY_SHORT_ID:-}"
 SAVED_PUBLIC_IP="${PUBLIC_IP:-}"
 
-# Always try to refresh PUBLIC_IP so the client profile does not keep advertising an old IP.
+# 每次尝试重新探测公网 IPv4，避免客户端配置长期使用旧 IP。
 PUBLIC_IP="$(myvpn_detect_public_ipv4 || true)"
 if [[ -z "$PUBLIC_IP" ]]; then
   if myvpn_is_ipv4 "$SAVED_PUBLIC_IP"; then
@@ -46,6 +49,7 @@ if [[ -z "$PUBLIC_IP" ]]; then
   fi
 fi
 
+# 若 server.env 中 UUID 为空，优先尝试从当前 sing-box 配置恢复，减少客户端凭据变化。
 if [[ -z "$VLESS_UUID" && -f "$CONFIG_FILE" ]]; then
   VLESS_UUID="$(jq -r '.inbounds[]? | select(.tag == "myvpn-vless-reality-in") | .users[0].uuid // empty' "$CONFIG_FILE" 2>/dev/null | head -n1 || true)"
 fi
@@ -54,8 +58,7 @@ if [[ -z "$VLESS_UUID" ]]; then
   echo "Initialized missing VLESS_UUID."
 fi
 
-# If either half of the REALITY key pair is missing, create a complete new pair.
-# apply-config.sh below applies it to the server before client files are generated.
+# REALITY 密钥缺失或不成对时生成一整对；随后会先应用服务端配置再输出客户端配置。
 if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" ]]; then
   keypair="$(sing-box generate reality-keypair)"
   REALITY_PRIVATE_KEY="$(printf '%s\n' "$keypair" | sed -nE 's/^[[:space:]]*PrivateKey:[[:space:]]*([^[:space:]]+).*/\1/p' | head -n1)"
@@ -64,7 +67,7 @@ fi
 if [[ -z "$REALITY_SHORT_ID" ]]; then REALITY_SHORT_ID="$(openssl rand -hex 8)"; fi
 if [[ -z "$SUBSCRIBE_TOKEN" ]]; then SUBSCRIBE_TOKEN="$(openssl rand -hex 24)"; fi
 
-# Persist the refreshed IP and any repaired settings without overwriting other server.env fields.
+# 安全更新配置文件中的单个参数，不覆盖文件内其他配置和注释。
 myvpn_set_env_value "$ENV_FILE" PUBLIC_IP "$PUBLIC_IP"
 myvpn_set_env_value "$ENV_FILE" SERVER_PORT "$SERVER_PORT"
 myvpn_set_env_value "$ENV_FILE" VLESS_UUID "$VLESS_UUID"
@@ -79,13 +82,11 @@ myvpn_set_env_value "$ENV_FILE" ENABLE_SUBSCRIPTION "$ENABLE_SUBSCRIPTION"
 myvpn_set_env_value "$ENV_FILE" NGINX_HTTP_PORT "$NGINX_HTTP_PORT"
 myvpn_set_env_value "$ENV_FILE" SUBSCRIBE_TOKEN "$SUBSCRIBE_TOKEN"
 
-# Re-apply the server-side config before publishing client credentials. If UUID or
-# the key pair was repaired above, this keeps the server and generated client in sync.
+# 先应用服务端配置，确保客户端里的 UUID 和 REALITY 公钥与服务端一致。
 "$PROJECT_DIR/apply-config.sh"
-# Reload normalized env after the apply step.
+# 重新加载标准化后的配置。
 # shellcheck disable=SC1090
 source "$ENV_FILE"
-
 for key in SERVER_PORT PUBLIC_IP VLESS_UUID REALITY_PUBLIC_KEY REALITY_SHORT_ID REALITY_SNI NODE_NAME; do
   [[ -n "${!key:-}" ]] || { echo "ERROR: $key is still empty after initialization; inspect $ENV_FILE." >&2; exit 1; }
 done
@@ -105,7 +106,7 @@ printf '%s' "$URI" | base64 -w 0 > "$CLIENT_DIR/subscribe.txt"
 printf '\n' >> "$CLIENT_DIR/subscribe.txt"
 chmod 600 "$CLIENT_DIR/subscribe.txt"
 
-if [[ "${ENABLE_SUBSCRIPTION:-true}" == "true" ]]; then
+if [[ "$ENABLE_SUBSCRIPTION" == "true" ]]; then
   install -d -m 755 "$PUBLIC_DIR"
   touch "$PUBLIC_DIR/.myvpn-managed"
   chmod 644 "$PUBLIC_DIR/.myvpn-managed"
@@ -118,6 +119,7 @@ else
   fi
 fi
 
+# 生成 sing-box 客户端配置。
 jq -n \
   --arg server "$PUBLIC_IP" \
   --argjson port "$SERVER_PORT" \
@@ -130,6 +132,7 @@ jq -n \
 chmod 600 "$CLIENT_DIR/sing-box.json"
 sing-box check -c "$CLIENT_DIR/sing-box.json"
 
+# 生成兼容 Mihomo / Clash.Meta 的 VLESS + REALITY YAML。
 cat > "$CLIENT_DIR/clash.yaml" <<YAML
 proxies:
   - name: "${NODE_NAME}"
@@ -157,8 +160,7 @@ rules:
 YAML
 chmod 600 "$CLIENT_DIR/clash.yaml"
 
-# If the public IPv4 changed and Nginx is advertising that IP (no DOMAIN configured),
-# refresh only this project's existing Nginx site so the subscription URL keeps working.
+# 公网 IP 变化且订阅地址直接使用 IP 时，只刷新本项目管理的 Nginx 站点。
 if [[ "$SAVED_PUBLIC_IP" != "$PUBLIC_IP" && -z "${DOMAIN:-}" && -f /etc/nginx/sites-available/my-vpn-subscription ]] \
   && grep -q 'managed-by-my-vpn' /etc/nginx/sites-available/my-vpn-subscription; then
   "$PROJECT_DIR/nginx-setup.sh"
@@ -169,7 +171,7 @@ if command -v qrencode >/dev/null 2>&1; then
   chmod 600 "$CLIENT_DIR/vless.png"
 fi
 
-if [[ "${ENABLE_SUBSCRIPTION:-true}" == "true" ]]; then
+if [[ "$ENABLE_SUBSCRIPTION" == "true" ]]; then
   if [[ -n "${DOMAIN:-}" ]]; then host="$DOMAIN"; else host="$PUBLIC_IP"; fi
   if [[ "${NGINX_HTTP_PORT:-80}" == "80" ]]; then port_suffix=""; else port_suffix=":${NGINX_HTTP_PORT}"; fi
   echo "Public IPv4 : $PUBLIC_IP (auto-detected)"

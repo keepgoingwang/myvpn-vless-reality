@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 中文说明：读取当前项目目录的 server.env，生成、检查并应用 sing-box 服务端配置。
+# 修改配置后只有校验通过且服务成功启动，才算应用成功。
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,14 +11,17 @@ CONFIG_FILE="${CONFIG_DIR}/config.json"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "ERROR: run as root." >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "ERROR: $ENV_FILE not found; run install.sh first." >&2; exit 1; }
+
 # shellcheck disable=SC1090
 source "$ENV_FILE"
+# 中文说明：兼容历史配置中的小写 server_port；大写 SERVER_PORT 优先。
+SERVER_PORT="${SERVER_PORT:-${server_port:-18388}}"
 
 for key in SERVER_PORT VLESS_UUID REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID REALITY_SNI REALITY_HANDSHAKE_SERVER REALITY_HANDSHAKE_PORT; do
   [[ -n "${!key:-}" ]] || { echo "ERROR: $key is empty. Run install.sh to initialize keys." >&2; exit 1; }
 done
-[[ "$SERVER_PORT" =~ ^[0-9]+$ ]] && (( SERVER_PORT >= 1 && SERVER_PORT <= 65535 )) || { echo "ERROR: invalid SERVER_PORT." >&2; exit 1; }
-[[ "$REALITY_HANDSHAKE_PORT" =~ ^[0-9]+$ ]] && (( REALITY_HANDSHAKE_PORT >= 1 && REALITY_HANDSHAKE_PORT <= 65535 )) || { echo "ERROR: invalid REALITY_HANDSHAKE_PORT." >&2; exit 1; }
+[[ "$SERVER_PORT" =~ ^[0-9]+$ ]] && (( SERVER_PORT >= 1 && SERVER_PORT <= 65535 )) || { echo "ERROR: invalid SERVER_PORT; expected 1-65535." >&2; exit 1; }
+[[ "$REALITY_HANDSHAKE_PORT" =~ ^[0-9]+$ ]] && (( REALITY_HANDSHAKE_PORT >= 1 && REALITY_HANDSHAKE_PORT <= 65535 )) || { echo "ERROR: invalid REALITY_HANDSHAKE_PORT; expected 1-65535." >&2; exit 1; }
 [[ "$VLESS_UUID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "ERROR: VLESS_UUID does not look like a UUID." >&2; exit 1; }
 [[ "$REALITY_SHORT_ID" =~ ^([0-9a-fA-F]{2}){1,8}$ ]] || { echo "ERROR: REALITY_SHORT_ID must be 2-16 hexadecimal characters." >&2; exit 1; }
 [[ "$REALITY_SNI" =~ ^[A-Za-z0-9.-]+$ && "$REALITY_HANDSHAKE_SERVER" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "ERROR: invalid SNI/handshake hostname." >&2; exit 1; }
@@ -35,6 +40,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# 使用 jq 安全生成 JSON，避免手工拼接导致转义或格式错误。
 jq -n \
   --arg tag "myvpn-vless-reality-in" \
   --arg uuid "$VLESS_UUID" \

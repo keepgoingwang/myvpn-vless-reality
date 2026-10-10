@@ -1,4 +1,7 @@
-server.env
+# 仓库根目录 server.env 是无密钥模板，需要提交到 Git。
+# 安装目录生成的真实运行配置不应提交；本地可将其存放在独立运行目录中。
+/server.env.local
+/client/
 clients/*
 !clients/.gitkeep
 *.bak
