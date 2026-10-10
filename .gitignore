@@ -1,0 +1,5 @@
+server.env
+clients/*
+!clients/.gitkeep
+*.bak
+*.tmp
