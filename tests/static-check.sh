@@ -5,6 +5,9 @@ for f in "$ROOT"/*.sh; do bash -n "$f"; done
 grep -q 'myvpn-vless-reality-in' "$ROOT/apply-config.sh"
 grep -q 'reality-keypair' "$ROOT/install.sh"
 grep -q 'myvpn-managed' "$ROOT/firewall.sh"
+grep -q '\${PROJECT_DIR}/client' "$ROOT/generate-config.sh"
+grep -q 'clash.yaml' "$ROOT/generate-config.sh"
+grep -q 'reality-opts:' "$ROOT/generate-config.sh"
 if grep -q 'sites-enabled/default' "$ROOT/nginx-setup.sh"; then
   echo "ERROR: installer must not delete the global Nginx default site." >&2
   exit 1

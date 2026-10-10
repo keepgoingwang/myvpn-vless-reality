@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-sudo /opt/my-vpn/apply-config.sh
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+sudo "$SCRIPT_DIR/apply-config.sh"
 sudo systemctl restart nginx
-sudo /opt/my-vpn/healthcheck.sh
+sudo "$SCRIPT_DIR/healthcheck.sh"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_DIR="/opt/my-vpn"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${MYVPN_PROJECT_DIR:-$SCRIPT_DIR}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="/var/backups/my-vpn"
 DEST="${BACKUP_ROOT}/${STAMP}"

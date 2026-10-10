@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-PROJECT_DIR="/opt/my-vpn"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
 CONFIG_FILE="/etc/sing-box/config.json"
 NGINX_CONFIG="/etc/nginx/sites-available/my-vpn-subscription"
 NGINX_LINK="/etc/nginx/sites-enabled/my-vpn-subscription"
@@ -10,7 +11,7 @@ PUBLIC_DIR="/var/www/my-vpn"
 read -r -p "This removes the my-vpn VLESS config/site and only UFW rules marked myvpn-managed. Backup first. Continue? [y/N]: " confirm
 [[ "$confirm" == "y" || "$confirm" == "Y" ]] || { echo "Cancelled."; exit 0; }
 
-BACKUP_DIR="$(/opt/my-vpn/backup.sh --path-only)"
+BACKUP_DIR="$("$PROJECT_DIR/backup.sh" --path-only)"
 echo "Backup: $BACKUP_DIR"
 
 if [[ -f "$CONFIG_FILE" ]] && grep -q 'myvpn-vless-reality-in' "$CONFIG_FILE"; then
@@ -30,7 +31,7 @@ else
   echo "Skipped Nginx site: no project marker found."
 fi
 
-/opt/my-vpn/firewall.sh remove || true
+"$PROJECT_DIR/firewall.sh" remove || true
 if [[ -f "$PUBLIC_DIR/.myvpn-managed" ]]; then
   rm -f "$PUBLIC_DIR/subscribe.txt" "$PUBLIC_DIR/.myvpn-managed"
   rmdir "$PUBLIC_DIR" 2>/dev/null || true

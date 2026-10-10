@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-PROJECT_DIR="/opt/my-vpn"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${MYVPN_PROJECT_DIR:-$SCRIPT_DIR}"
 ENV_FILE="${PROJECT_DIR}/server.env"
 [[ -f "$ENV_FILE" ]] || { echo "ERROR: $ENV_FILE missing." >&2; exit 1; }
 # shellcheck disable=SC1090
@@ -17,4 +18,4 @@ if [[ "${ENABLE_SUBSCRIPTION:-true}" == "true" ]]; then
   suffix=""; [[ "${NGINX_HTTP_PORT:-80}" == "80" ]] || suffix=":${NGINX_HTTP_PORT}"
   echo "Subscription URL: http://${host}${suffix}/${SUBSCRIBE_TOKEN}/subscribe.txt"
 fi
-echo "Client files are under ${PROJECT_DIR}/clients (root-only permissions)."
+echo "Client files are under ${PROJECT_DIR}/client (root-only permissions)."

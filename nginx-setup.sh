@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_DIR="/opt/my-vpn"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${MYVPN_PROJECT_DIR:-$SCRIPT_DIR}"
 ENV_FILE="${PROJECT_DIR}/server.env"
 NGINX_CONFIG="/etc/nginx/sites-available/my-vpn-subscription"
 NGINX_LINK="/etc/nginx/sites-enabled/my-vpn-subscription"

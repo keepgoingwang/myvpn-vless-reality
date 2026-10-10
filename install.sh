@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_DIR="/opt/my-vpn"
-ENV_FILE="${PROJECT_DIR}/server.env"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${MYVPN_INSTALL_DIR:-/opt/my-vpn}"
+ENV_FILE="${PROJECT_DIR}/server.env"
 BACKUP_DIR=""
 INSTALL_COMMITTED=false
 INSTALLER_TMP=""
 
 [[ "$(id -u)" -eq 0 ]] || { echo "ERROR: run as root: sudo bash install.sh" >&2; exit 1; }
 [[ -f "$SCRIPT_DIR/apply-config.sh" && -f "$SCRIPT_DIR/generate-config.sh" ]] || { echo "ERROR: incomplete project directory: $SCRIPT_DIR" >&2; exit 1; }
-case "$SCRIPT_DIR/" in "$PROJECT_DIR/"*) echo "ERROR: run from a separate staging directory, not $PROJECT_DIR." >&2; exit 1 ;; esac
+case "$SCRIPT_DIR/" in "$PROJECT_DIR/"*) echo "ERROR: run install.sh from a separate staging directory, not inside the installation directory ($PROJECT_DIR)." >&2; exit 1 ;; esac
 
 rollback_install() {
   local rc=$?
@@ -62,7 +62,7 @@ rollback_install() {
 trap rollback_install EXIT
 
 # A root-only snapshot is created before apt, code, config, Nginx or firewall changes.
-BACKUP_DIR="$(bash "$SCRIPT_DIR/backup.sh" --path-only)"
+BACKUP_DIR="$(MYVPN_PROJECT_DIR="$PROJECT_DIR" bash "$SCRIPT_DIR/backup.sh" --path-only)"
 echo "Pre-install backup: $BACKUP_DIR"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -88,9 +88,9 @@ command -v sing-box >/dev/null 2>&1 || { echo "ERROR: sing-box installation fail
 
 install -d -m 700 "$PROJECT_DIR"
 # Do not copy .git, runtime env or generated client credentials over the live directory.
-tar --exclude=.git --exclude=server.env --exclude=clients -cf - -C "$SCRIPT_DIR" . | tar -xf - -C "$PROJECT_DIR"
+tar --exclude=.git --exclude=server.env --exclude=client -cf - -C "$SCRIPT_DIR" . | tar -xf - -C "$PROJECT_DIR"
 chmod 700 "$PROJECT_DIR"
-install -d -m 700 "$PROJECT_DIR/clients"
+install -d -m 700 "$PROJECT_DIR/client"
 chmod +x "$PROJECT_DIR"/*.sh
 
 # Load the previous env only to migrate stable subscription settings. The old Shadowsocks
@@ -198,6 +198,6 @@ echo "Install succeeded."
 echo "Backup: $BACKUP_DIR"
 echo "Endpoint: ${PUBLIC_IP}:${OLD_SERVER_PORT}/tcp (VLESS + REALITY)"
 echo "Config: ${PROJECT_DIR}/server.env"
-echo "Client URI: ${PROJECT_DIR}/clients/vless.txt"
+echo "Client URI: ${PROJECT_DIR}/client/vless.txt"
 echo "Subscription: use the URL printed by generate-config.sh"
 echo "Remember: also allow TCP ${OLD_SERVER_PORT} and TCP ${OLD_NGINX_PORT} in the Alibaba Cloud security group."

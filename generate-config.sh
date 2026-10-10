@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_DIR="/opt/my-vpn"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${MYVPN_PROJECT_DIR:-$SCRIPT_DIR}"
 ENV_FILE="${PROJECT_DIR}/server.env"
-CLIENT_DIR="${PROJECT_DIR}/clients"
+CLIENT_DIR="${PROJECT_DIR}/client"
 PUBLIC_DIR="/var/www/my-vpn"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "ERROR: run as root." >&2; exit 1; }
