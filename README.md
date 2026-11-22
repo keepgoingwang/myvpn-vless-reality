@@ -60,7 +60,36 @@ sudo ./healthcheck.sh
 - `client/sing-box.json`：sing-box 客户端配置。
 - `client/clash.yaml`：兼容 **Mihomo / Clash.Meta** 的配置，支持 VLESS + REALITY；不保证旧版 Clash 内核兼容。
 
-生成的客户端文件含认证信息，请勿公开分享。`server.env` 含 REALITY 私钥和 HY2 密码，同样需要保密。\n\n## Hysteria2 使用说明\n\nHY2 默认启用 UDP 2096。`generate-config.sh` 会自动生成密码和自签 TLS 证书，并输出 `client/hy2.txt`、`client/hy2-sing-box.json`；`client/clash.yaml` 同时包含 VLESS + REALITY 与 HY2。\n\n### Clash.Meta / Mihomo\n\n1. 使用支持 Hysteria2 的 Mihomo / Clash.Meta 内核。\n2. 导入 `client/clash.yaml`。\n3. 在 `PROXY` 策略组中选择 HY2 节点。\n\n### Shadowrocket（小火箭）\n\n1. 确认客户端版本支持 Hysteria2。\n2. 复制 `client/hy2.txt` 中的完整 URI。\n3. 在 Shadowrocket 中从剪贴板导入节点。\n\n这里的 SS 指 Shadowrocket 客户端简称，不是 Shadowsocks 协议。HY2 URI 不能导入仅支持 Shadowsocks 的客户端。\n\n### sing-box\n\n1. 将 `client/hy2-sing-box.json` 传输到设备。\n2. 在 sing-box 中导入配置并启动 VPN。\n\n### 网络放行\n\n云厂商安全组必须额外放行 **UDP 2096 入方向**。安装器会在 UFW 已启用时管理 UDP 规则，但不会修改云安全组。\n\n修改 `HY2_ENABLED` 或 `HY2_PORT` 后，执行 `sudo ./generate-config.sh`。关闭 HY2 不影响 VLESS。
+生成的客户端文件含认证信息，请勿公开分享。`server.env` 含 REALITY 私钥和 HY2 密码，同样需要保密。
+
+## Hysteria2 使用说明
+
+HY2 默认启用 UDP 2096。`generate-config.sh` 会自动生成密码和自签 TLS 证书，并输出 `client/hy2.txt`、`client/hy2-sing-box.json`；`client/clash.yaml` 同时包含 VLESS + REALITY 与 HY2。
+
+### Clash.Meta / Mihomo
+
+1. 使用支持 Hysteria2 的 Mihomo / Clash.Meta 内核。
+2. 导入 `client/clash.yaml`。
+3. 在 `PROXY` 策略组中选择 HY2 节点。
+
+### Shadowrocket（小火箭）
+
+1. 确认客户端版本支持 Hysteria2。
+2. 复制 `client/hy2.txt` 中的完整 URI。
+3. 在 Shadowrocket 中从剪贴板导入节点。
+
+这里的 SS 指 Shadowrocket 客户端简称，不是 Shadowsocks 协议。HY2 URI 不能导入仅支持 Shadowsocks 的客户端。
+
+### sing-box
+
+1. 将 `client/hy2-sing-box.json` 传输到设备。
+2. 在 sing-box 中导入配置并启动 VPN。
+
+### 网络放行
+
+云厂商安全组必须额外放行 **UDP 2096 入方向**。安装器会在 UFW 已启用时管理 UDP 规则，但不会修改云安全组。
+
+修改 `HY2_ENABLED` 或 `HY2_PORT` 后，执行 `sudo ./generate-config.sh`。关闭 HY2 不影响 VLESS。
 
 ## 首次安装与目录改名提醒
 
