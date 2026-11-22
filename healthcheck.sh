@@ -13,6 +13,10 @@ check "sing-box config syntax" sing-box check -c /etc/sing-box/config.json
 check "sing-box service enabled" systemctl is-enabled --quiet sing-box
 check "sing-box service active" systemctl is-active --quiet sing-box
 check "proxy TCP listener ${SERVER_PORT}" bash -c "ss -lntH 'sport = :${SERVER_PORT}' | grep -q ."
+if [[ "${HY2_ENABLED:-true}" == "true" ]]; then
+  HY2_PORT="${HY2_PORT:-2096}"
+  check "HY2 UDP listener ${HY2_PORT}" bash -c "ss -lunH 'sport = :${HY2_PORT}' | grep -q ."
+fi
 
 if [[ "${ENABLE_SUBSCRIPTION:-true}" == "true" ]]; then
   check "Nginx service active" systemctl is-active --quiet nginx

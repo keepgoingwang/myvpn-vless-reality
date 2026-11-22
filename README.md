@@ -1,15 +1,15 @@
-# MyVPN：VLESS + REALITY
+# MyVPN：VLESS + REALITY + Hysteria2
 
 适用 Ubuntu 24.04，服务端使用 sing-box，客户端输出包括 Shadowrocket 的 VLESS 链接、Base64 订阅、sing-box JSON 和 **Mihomo / Clash.Meta YAML**。
 
 ## 目录规则
 
-除首次安装脚本外，脚本会自动把**脚本所在目录**识别为项目目录，不再依赖目录必须叫 `/opt/my-vpn`。你可以把已安装的项目目录改名或移动，随后从新目录执行脚本即可。客户端文件统一生成在项目目录下的 `client/`。
+除首次安装脚本外，脚本会自动把**脚本所在目录**识别为项目目录，不再依赖目录必须叫 `/opt/myvpn-production`。你可以把已安装的项目目录改名或移动，随后从新目录执行脚本即可。客户端文件统一生成在项目目录下的 `client/`。
 
-首次安装默认安装到 `/opt/my-vpn`。如需自定义安装目录，先进入解压后的暂存目录，然后指定目标目录：
+首次安装默认安装到 `/opt/myvpn-production`。如需自定义安装目录，先进入解压后的暂存目录，然后指定目标目录：
 
 ```bash
-sudo MYVPN_INSTALL_DIR=/opt/my-vpn-prod bash ./install.sh
+sudo MYVPN_INSTALL_DIR=/opt/myvpn-production-prod bash ./install.sh
 ```
 
 安装脚本需要从**独立暂存目录**运行，不要从目标安装目录内部运行。若移动/改名项目目录，`server.env`、`client/` 和脚本应一起移动；系统服务配置仍位于 `/etc/sing-box/`，Nginx 订阅站点仍使用 `/var/www/my-vpn/`。
@@ -18,7 +18,7 @@ sudo MYVPN_INSTALL_DIR=/opt/my-vpn-prod bash ./install.sh
 
 | 脚本 | 用途 / 使用方式 |
 |---|---|
-| `install.sh` | 首次安装或迁移到 VLESS + REALITY；自动备份、安装依赖、生成服务端配置和客户端文件。需 root；默认目标 `/opt/my-vpn`，可用 `MYVPN_INSTALL_DIR` 自定义。 |
+| `install.sh` | 首次安装或迁移到 VLESS + REALITY；自动备份、安装依赖、生成服务端配置和客户端文件。需 root；默认目标 `/opt/myvpn-production`，可用 `MYVPN_INSTALL_DIR` 自定义。 |
 | `lib.sh` | 公共函数库，供安装和生成脚本调用；不需要手动执行。包含公网 IPv4 探测、地址校验和安全更新 `server.env` 的函数。 |
 | `backup.sh` | 备份项目目录、sing-box 配置、Nginx 站点和网络规则快照。`sudo ./backup.sh`；仅输出备份路径可用 `sudo ./backup.sh --path-only`。 |
 | `apply-config.sh` | 从当前目录的 `server.env` 生成并校验 `/etc/sing-box/config.json`，重启服务；失败时尝试回滚。`sudo ./apply-config.sh`。 |
@@ -33,7 +33,7 @@ sudo MYVPN_INSTALL_DIR=/opt/my-vpn-prod bash ./install.sh
 ## 安装后常用操作
 
 ```bash
-cd /opt/my-vpn  # 如果自定义或改名了目录，改成实际路径
+cd /opt/myvpn-production  # 如果自定义或改名了目录，改成实际路径
 sudo ./status.sh
 sudo ./healthcheck.sh
 sudo ./generate-config.sh
@@ -179,7 +179,36 @@ systemctl restart sing-box
 - `client/sing-box.json`：sing-box 客户端配置。
 - `client/clash.yaml`：兼容 **Mihomo / Clash.Meta** 的配置，支持 VLESS + REALITY；不保证旧版 Clash 内核兼容。
 
-生成的客户端文件含认证信息，请勿公开分享。`server.env` 含 REALITY 私钥，同样需要保密。
+生成的客户端文件含认证信息，请勿公开分享。`server.env` 含 REALITY 私钥和 HY2 密码，同样需要保密。
+
+## Hysteria2 使用说明
+
+HY2 默认启用 UDP 2096。`generate-config.sh` 会自动生成密码和自签 TLS 证书，并输出 `client/hy2.txt`、`client/hy2-sing-box.json`；`client/clash.yaml` 同时包含 VLESS + REALITY 与 HY2。
+
+### Clash.Meta / Mihomo
+
+1. 使用支持 Hysteria2 的 Mihomo / Clash.Meta 内核。
+2. 导入 `client/clash.yaml`。
+3. 在 `PROXY` 策略组中选择 HY2 节点。
+
+### Shadowrocket（小火箭）
+
+1. 确认客户端版本支持 Hysteria2。
+2. 复制 `client/hy2.txt` 中的完整 URI。
+3. 在 Shadowrocket 中从剪贴板导入节点。
+
+这里的 SS 指 Shadowrocket 客户端简称，不是 Shadowsocks 协议。HY2 URI 不能导入仅支持 Shadowsocks 的客户端。
+
+### sing-box
+
+1. 将 `client/hy2-sing-box.json` 传输到设备。
+2. 在 sing-box 中导入配置并启动 VPN。
+
+### 网络放行
+
+云厂商安全组必须额外放行 **UDP 2096 入方向**。安装器会在 UFW 已启用时管理 UDP 规则，但不会修改云安全组。
+
+修改 `HY2_ENABLED` 或 `HY2_PORT` 后，执行 `sudo ./generate-config.sh`。关闭 HY2 不影响 VLESS。
 
 ## 首次安装与目录改名提醒
 

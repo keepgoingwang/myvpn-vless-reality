@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="${MYVPN_INSTALL_DIR:-/opt/my-vpn}"
+PROJECT_DIR="${MYVPN_INSTALL_DIR:-/opt/myvpn-production}"
 ENV_FILE="${PROJECT_DIR}/server.env"
 BACKUP_DIR=""
 INSTALL_COMMITTED=false
@@ -44,11 +44,18 @@ TEMPLATE_DOMAIN="${DOMAIN:-}"
 TEMPLATE_ENABLE_UFW="${ENABLE_UFW:-true}"
 TEMPLATE_SSH_PORT="${SSH_PORT:-22}"
 TEMPLATE_NGINX_PORT="${NGINX_HTTP_PORT:-80}"
+TEMPLATE_HY2_ENABLED="${HY2_ENABLED:-true}"
+TEMPLATE_HY2_PORT="${HY2_PORT:-2096}"
+TEMPLATE_HY2_PASSWORD="${HY2_PASSWORD:-}"
+TEMPLATE_HY2_SERVER_NAME="${HY2_SERVER_NAME:-hy2.local}"
+TEMPLATE_HY2_CERT_PATH="${HY2_CERT_PATH:-/etc/sing-box/hy2-cert.pem}"
+TEMPLATE_HY2_KEY_PATH="${HY2_KEY_PATH:-/etc/sing-box/hy2-key.pem}"
 
 # 清除由模板加载的变量，确保运行目录的 server.env 能明确覆盖模板默认值。
 unset PROTOCOL SERVER_PORT server_port VLESS_UUID REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
 unset REALITY_SNI REALITY_HANDSHAKE_SERVER REALITY_HANDSHAKE_PORT NODE_NAME PUBLIC_IP
 unset ENABLE_SUBSCRIPTION SUBSCRIBE_TOKEN DOMAIN ENABLE_HTTPS NGINX_HTTP_PORT ENABLE_UFW SSH_PORT
+unset HY2_ENABLED HY2_PORT HY2_PASSWORD HY2_SERVER_NAME HY2_CERT_PATH HY2_KEY_PATH
 
 rollback_install() {
   local rc=$?
@@ -150,6 +157,12 @@ OLD_SNI="$TEMPLATE_SNI"
 OLD_HANDSHAKE="$TEMPLATE_HANDSHAKE"
 OLD_HANDSHAKE_PORT="$TEMPLATE_HANDSHAKE_PORT"
 OLD_PROTOCOL=""
+OLD_HY2_ENABLED="$TEMPLATE_HY2_ENABLED"
+OLD_HY2_PORT="$TEMPLATE_HY2_PORT"
+OLD_HY2_PASSWORD="$TEMPLATE_HY2_PASSWORD"
+OLD_HY2_SERVER_NAME="$TEMPLATE_HY2_SERVER_NAME"
+OLD_HY2_CERT_PATH="$TEMPLATE_HY2_CERT_PATH"
+OLD_HY2_KEY_PATH="$TEMPLATE_HY2_KEY_PATH"
 
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -170,6 +183,12 @@ if [[ -f "$ENV_FILE" ]]; then
   OLD_SNI="${REALITY_SNI:-$TEMPLATE_SNI}"
   OLD_HANDSHAKE="${REALITY_HANDSHAKE_SERVER:-${REALITY_SNI:-$TEMPLATE_HANDSHAKE}}"
   OLD_HANDSHAKE_PORT="${REALITY_HANDSHAKE_PORT:-$TEMPLATE_HANDSHAKE_PORT}"
+  OLD_HY2_ENABLED="${HY2_ENABLED:-$TEMPLATE_HY2_ENABLED}"
+  OLD_HY2_PORT="${HY2_PORT:-$TEMPLATE_HY2_PORT}"
+  OLD_HY2_PASSWORD="${HY2_PASSWORD:-$TEMPLATE_HY2_PASSWORD}"
+  OLD_HY2_SERVER_NAME="${HY2_SERVER_NAME:-$TEMPLATE_HY2_SERVER_NAME}"
+  OLD_HY2_CERT_PATH="${HY2_CERT_PATH:-$TEMPLATE_HY2_CERT_PATH}"
+  OLD_HY2_KEY_PATH="${HY2_KEY_PATH:-$TEMPLATE_HY2_KEY_PATH}"
   # VLESS 旧配置可以沿用端口；旧 Shadowsocks 端口不沿用，改用模板端口。
   if [[ "$OLD_PROTOCOL" == "vless-reality" ]]; then
     OLD_SERVER_PORT="${SERVER_PORT:-${server_port:-$TEMPLATE_SERVER_PORT}}"
@@ -207,6 +226,7 @@ else
 fi
 SUBSCRIBE_TOKEN="$OLD_TOKEN"
 [[ -n "$SUBSCRIBE_TOKEN" ]] || SUBSCRIBE_TOKEN="$(openssl rand -hex 24)"
+if [[ "$OLD_HY2_ENABLED" == "true" && -z "$OLD_HY2_PASSWORD" ]]; then OLD_HY2_PASSWORD="$(openssl rand -hex 32)"; fi
 
 # 旧配置中的 ENABLE_HTTPS 不会自动迁移：当前 Nginx 脚本只配置 HTTP，不自动申请证书。
 if [[ "${ENABLE_HTTPS:-false}" == "true" ]]; then
@@ -235,6 +255,12 @@ TMP_ENV="$(mktemp "${PROJECT_DIR}/server.env.XXXXXX")"
   printf '# Nginx HTTP 订阅端口。\nNGINX_HTTP_PORT=%q\n' "$OLD_NGINX_PORT"
   printf '# 是否由脚本管理 UFW 规则，不影响云厂商安全组。\nENABLE_UFW=%q\n' "$OLD_ENABLE_UFW"
   printf '# SSH 服务端口；仅用于 UFW 放行规则。\nSSH_PORT=%q\n' "$OLD_SSH_PORT"
+  printf '# 是否启用 Hysteria2 UDP 入站：true/false。\nHY2_ENABLED=%q\n' "$OLD_HY2_ENABLED"
+  printf '# Hysteria2 UDP 监听端口。\nHY2_PORT=%q\n' "$OLD_HY2_PORT"
+  printf '# Hysteria2 密码；留空时由生成脚本自动生成。\nHY2_PASSWORD=%q\n' "$OLD_HY2_PASSWORD"
+  printf '# Hysteria2 TLS SNI。\nHY2_SERVER_NAME=%q\n' "$OLD_HY2_SERVER_NAME"
+  printf '# Hysteria2 TLS 证书路径。\nHY2_CERT_PATH=%q\n' "$OLD_HY2_CERT_PATH"
+  printf '# Hysteria2 TLS 私钥路径。\nHY2_KEY_PATH=%q\n' "$OLD_HY2_KEY_PATH"
 } > "$TMP_ENV"
 chmod 600 "$TMP_ENV"
 mv -f "$TMP_ENV" "$ENV_FILE"
@@ -246,7 +272,7 @@ mv -f "$TMP_ENV" "$ENV_FILE"
 if [[ "$OLD_ENABLE_UFW" == "true" ]]; then
   : > "$BACKUP_DIR/firewall-added-this-run.txt"
   MYVPN_FIREWALL_JOURNAL="$BACKUP_DIR/firewall-added-this-run.txt" \
-    "$PROJECT_DIR/firewall.sh" ensure "$OLD_SSH_PORT" "$OLD_SERVER_PORT" "$OLD_NGINX_PORT"
+    "$PROJECT_DIR/firewall.sh" ensure "$OLD_SSH_PORT" "$OLD_SERVER_PORT" "$OLD_NGINX_PORT" "$([[ "$OLD_HY2_ENABLED" == "true" ]] && echo "$OLD_HY2_PORT" || echo 0)"
 else
   echo "ENABLE_UFW=false: no firewall rules were changed."
 fi
@@ -261,4 +287,4 @@ echo "Endpoint: ${PUBLIC_IP}:${OLD_SERVER_PORT}/tcp (VLESS + REALITY)"
 echo "Config: ${PROJECT_DIR}/server.env"
 echo "Client URI: ${PROJECT_DIR}/client/vless.txt"
 echo "Subscription: use the URL printed by generate-config.sh"
-echo "Remember: also allow TCP ${OLD_SERVER_PORT} and TCP ${OLD_NGINX_PORT} in the Alibaba Cloud security group."
+echo "Remember: also allow TCP ${OLD_SERVER_PORT}, TCP ${OLD_NGINX_PORT}, and $([[ "$OLD_HY2_ENABLED" == "true" ]] && echo "UDP ${OLD_HY2_PORT}" || echo "no HY2 UDP port") in the Alibaba Cloud security group."

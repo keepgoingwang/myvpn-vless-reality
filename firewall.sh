@@ -76,8 +76,8 @@ remove_managed_rules() {
 
 case "${1:-}" in
   ensure)
-    # Arguments: ssh-port, proxy-port, nginx-http-port
-    [[ $# -eq 4 ]] || { echo "Usage: $0 ensure SSH_PORT PROXY_PORT NGINX_HTTP_PORT" >&2; exit 2; }
+    # Arguments: ssh-port, proxy-tcp-port, nginx-http-port, optional hy2-udp-port
+    [[ $# -eq 4 || $# -eq 5 ]] || { echo "Usage: $0 ensure SSH_PORT PROXY_TCP_PORT NGINX_HTTP_PORT [HY2_UDP_PORT]" >&2; exit 2; }
     if ! command -v ufw >/dev/null 2>&1; then echo "ERROR: UFW not installed." >&2; exit 1; fi
     if ! ufw status 2>/dev/null | grep -q '^Status: active'; then
       echo "UFW is inactive; not enabling it or changing its rules. Open the needed ports in the cloud security group, or explicitly enable UFW after reviewing the host's other services."
@@ -86,10 +86,11 @@ case "${1:-}" in
     ensure_rule "$2" tcp
     ensure_rule "$3" tcp
     ensure_rule "$4" tcp
+    if [[ -n "${5:-}" && "$5" != "0" ]]; then ensure_rule "$5" udp; fi
     echo
     echo "Current UFW status:"
     ufw status numbered || true
-    echo "Note: the cloud security group is separate and must allow TCP ${3} and TCP ${4}."
+    echo "Note: the cloud security group is separate and must allow TCP ${3}, TCP ${4}, and UDP ${5:-<disabled>}."
     ;;
   remove)
     remove_managed_rules
@@ -101,5 +102,5 @@ case "${1:-}" in
       remove_managed_port "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
     done < "$2"
     ;;
-  *) echo "Usage: $0 {ensure SSH_PORT PROXY_PORT NGINX_HTTP_PORT|remove|rollback JOURNAL_FILE}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {ensure SSH_PORT PROXY_TCP_PORT NGINX_HTTP_PORT [HY2_UDP_PORT]|remove|rollback JOURNAL_FILE" >&2; exit 2 ;;
 esac
