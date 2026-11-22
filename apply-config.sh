@@ -96,7 +96,7 @@ mv -f "$TMP_CONFIG" "$CONFIG_FILE"
 chmod 600 "$CONFIG_FILE"
 systemctl enable sing-box >/dev/null
 if systemctl restart sing-box && systemctl is-active --quiet sing-box; then
-  echo "Applied VLESS + REALITY configuration successfully."
+  echo "Applied VLESS + REALITY${HY2_ENABLED:+} configuration successfully."
   echo "Listening endpoint: ${PUBLIC_IP:-<set PUBLIC_IP>}:${SERVER_PORT}/tcp"
   [[ "$HY2_ENABLED" != "true" ]] || echo "HY2 endpoint: ${PUBLIC_IP:-<set PUBLIC_IP>}:${HY2_PORT}/udp"
 else
