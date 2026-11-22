@@ -226,6 +226,7 @@ else
 fi
 SUBSCRIBE_TOKEN="$OLD_TOKEN"
 [[ -n "$SUBSCRIBE_TOKEN" ]] || SUBSCRIBE_TOKEN="$(openssl rand -hex 24)"
+if [[ "$OLD_HY2_ENABLED" == "true" && -z "$OLD_HY2_PASSWORD" ]]; then OLD_HY2_PASSWORD="$(openssl rand -hex 32)"; fi
 
 # 旧配置中的 ENABLE_HTTPS 不会自动迁移：当前 Nginx 脚本只配置 HTTP，不自动申请证书。
 if [[ "${ENABLE_HTTPS:-false}" == "true" ]]; then
