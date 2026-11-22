@@ -27,6 +27,12 @@ SERVER_PORT="${SERVER_PORT:-${server_port:-18388}}"
 REALITY_SNI="${REALITY_SNI:-www.microsoft.com}"
 REALITY_HANDSHAKE_SERVER="${REALITY_HANDSHAKE_SERVER:-$REALITY_SNI}"
 REALITY_HANDSHAKE_PORT="${REALITY_HANDSHAKE_PORT:-443}"
+HY2_ENABLED="${HY2_ENABLED:-true}"
+HY2_PORT="${HY2_PORT:-2096}"
+HY2_PASSWORD="${HY2_PASSWORD:-}"
+HY2_SERVER_NAME="${HY2_SERVER_NAME:-hy2.local}"
+HY2_CERT_PATH="${HY2_CERT_PATH:-/etc/sing-box/hy2-cert.pem}"
+HY2_KEY_PATH="${HY2_KEY_PATH:-/etc/sing-box/hy2-key.pem}"
 NODE_NAME="${NODE_NAME:-US-Aliyun}"
 ENABLE_SUBSCRIPTION="${ENABLE_SUBSCRIPTION:-true}"
 NGINX_HTTP_PORT="${NGINX_HTTP_PORT:-80}"
@@ -66,6 +72,7 @@ if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" ]]; then
 fi
 if [[ -z "$REALITY_SHORT_ID" ]]; then REALITY_SHORT_ID="$(openssl rand -hex 8)"; fi
 if [[ -z "$SUBSCRIBE_TOKEN" ]]; then SUBSCRIBE_TOKEN="$(openssl rand -hex 24)"; fi
+if [[ "$HY2_ENABLED" == "true" && -z "$HY2_PASSWORD" ]]; then HY2_PASSWORD="$(openssl rand -hex 32)"; fi
 
 # 安全更新配置文件中的单个参数，不覆盖文件内其他配置和注释。
 myvpn_set_env_value "$ENV_FILE" PUBLIC_IP "$PUBLIC_IP"
@@ -81,6 +88,12 @@ myvpn_set_env_value "$ENV_FILE" NODE_NAME "$NODE_NAME"
 myvpn_set_env_value "$ENV_FILE" ENABLE_SUBSCRIPTION "$ENABLE_SUBSCRIPTION"
 myvpn_set_env_value "$ENV_FILE" NGINX_HTTP_PORT "$NGINX_HTTP_PORT"
 myvpn_set_env_value "$ENV_FILE" SUBSCRIBE_TOKEN "$SUBSCRIBE_TOKEN"
+myvpn_set_env_value "$ENV_FILE" HY2_ENABLED "$HY2_ENABLED"
+myvpn_set_env_value "$ENV_FILE" HY2_PORT "$HY2_PORT"
+myvpn_set_env_value "$ENV_FILE" HY2_PASSWORD "$HY2_PASSWORD"
+myvpn_set_env_value "$ENV_FILE" HY2_SERVER_NAME "$HY2_SERVER_NAME"
+myvpn_set_env_value "$ENV_FILE" HY2_CERT_PATH "$HY2_CERT_PATH"
+myvpn_set_env_value "$ENV_FILE" HY2_KEY_PATH "$HY2_KEY_PATH"
 
 # 先应用服务端配置，确保客户端里的 UUID 和 REALITY 公钥与服务端一致。
 "$PROJECT_DIR/apply-config.sh"
@@ -132,8 +145,54 @@ jq -n \
 chmod 600 "$CLIENT_DIR/sing-box.json"
 sing-box check -c "$CLIENT_DIR/sing-box.json"
 
-# 生成兼容 Mihomo / Clash.Meta 的 VLESS + REALITY YAML。
-cat > "$CLIENT_DIR/clash.yaml" <<YAML
+# 生成兼容 Mihomo / Clash.Meta 的 VLESS + REALITY + Hysteria2 YAML。
+if [[ "$HY2_ENABLED" == "true" ]]; then
+  HY2_NODE_NAME="${NODE_NAME}-HY2"
+  cat > "$CLIENT_DIR/clash.yaml" <<YAML
+proxies:
+  - name: "${NODE_NAME}"
+    type: vless
+    server: ${PUBLIC_IP}
+    port: ${SERVER_PORT}
+    uuid: ${VLESS_UUID}
+    network: tcp
+    tls: true
+    udp: true
+    flow: xtls-rprx-vision
+    servername: ${REALITY_SNI}
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: ${REALITY_PUBLIC_KEY}
+      short-id: ${REALITY_SHORT_ID}
+  - name: "${HY2_NODE_NAME}"
+    type: hysteria2
+    server: ${PUBLIC_IP}
+    port: ${HY2_PORT}
+    password: "${HY2_PASSWORD}"
+    sni: ${HY2_SERVER_NAME}
+    skip-cert-verify: true
+    udp: true
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - "${NODE_NAME}"
+      - "${HY2_NODE_NAME}"
+      - DIRECT
+rules:
+  - MATCH,PROXY
+YAML
+  HY2_NAME_ENC="$(jq -rn --arg value "$HY2_NODE_NAME" '$value|@uri')"
+  HY2_URI="hysteria2://${HY2_PASSWORD}@${PUBLIC_IP}:${HY2_PORT}/?insecure=1&sni=${HY2_SERVER_NAME}#${HY2_NAME_ENC}"
+  printf '%s\\n' "$HY2_URI" > "$CLIENT_DIR/hy2.txt"
+  chmod 600 "$CLIENT_DIR/hy2.txt"
+  jq -n --arg server "$PUBLIC_IP" --arg password "$HY2_PASSWORD" --arg server_name "$HY2_SERVER_NAME" --argjson port "$HY2_PORT" \
+    '{log:{level:"info"},inbounds:[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:2080}],outbounds:[{type:"hysteria2",tag:"proxy",server:$server,server_port:$port,password:$password,tls:{enabled:true,server_name:$server_name,insecure:true}},{type:"direct",tag:"direct"}],route:{final:"proxy"}}' > "$CLIENT_DIR/hy2-sing-box.json"
+  chmod 600 "$CLIENT_DIR/hy2-sing-box.json"
+  sing-box check -c "$CLIENT_DIR/hy2-sing-box.json"
+else
+  rm -f "$CLIENT_DIR/hy2.txt" "$CLIENT_DIR/hy2-sing-box.json"
+  cat > "$CLIENT_DIR/clash.yaml" <<YAML
 proxies:
   - name: "${NODE_NAME}"
     type: vless
@@ -158,6 +217,7 @@ proxy-groups:
 rules:
   - MATCH,PROXY
 YAML
+fi
 chmod 600 "$CLIENT_DIR/clash.yaml"
 
 # 公网 IP 变化且订阅地址直接使用 IP 时，只刷新本项目管理的 Nginx 站点。
@@ -178,9 +238,11 @@ if [[ "$ENABLE_SUBSCRIPTION" == "true" ]]; then
   echo "Client URI  : $CLIENT_DIR/vless.txt"
   echo "Sing-box    : $CLIENT_DIR/sing-box.json"
   echo "Mihomo      : $CLIENT_DIR/clash.yaml"
+  [[ "$HY2_ENABLED" != "true" ]] || { echo "HY2 URI     : $CLIENT_DIR/hy2.txt"; echo "HY2 sing-box: $CLIENT_DIR/hy2-sing-box.json"; }
   echo "Subscription URL: http://${host}${port_suffix}/${SUBSCRIBE_TOKEN}/subscribe.txt"
 else
   echo "Public IPv4 : $PUBLIC_IP (auto-detected)"
   echo "Client files: $CLIENT_DIR"
+  [[ "$HY2_ENABLED" != "true" ]] || { echo "HY2 URI     : $CLIENT_DIR/hy2.txt"; echo "HY2 sing-box: $CLIENT_DIR/hy2-sing-box.json"; }
   echo "Subscription is disabled by ENABLE_SUBSCRIPTION=false."
 fi
