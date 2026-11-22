@@ -53,6 +53,125 @@ sudo ./healthcheck.sh
 
 更改代理端口前，先在阿里云安全组放行对应 TCP 端口；主机 UFW 与阿里云安全组相互独立。确认新端口工作后，再检查并手动清理不再使用的旧规则。
 
+
+## 升级前备份与回退
+
+### 1. 升级前创建备份
+
+每次更新脚本、重新安装或调整服务端配置前，先在当前项目目录执行：
+
+```bash
+cd /opt/my-vpn  # 如果项目目录改过名，替换成实际路径
+sudo ./backup.sh
+```
+
+如需保存备份路径，使用：
+
+```bash
+BACKUP_DIR="$(sudo ./backup.sh --path-only)"
+echo "$BACKUP_DIR"
+```
+
+备份默认保存在 `/var/backups/my-vpn/YYYYMMDD-HHMMSS/`，目录权限仅允许 root 访问。备份内容包括：
+
+- 当前项目目录完整副本，包含 `server.env`、脚本和 `client/`。
+- `/etc/sing-box/config.json`。
+- 项目管理的 Nginx 站点配置及订阅文件目录。
+- UFW、iptables、nftables 规则快照，以及服务状态和监听端口诊断信息。
+
+请记录本次备份目录。不要把备份目录上传到 GitHub 或公开分享，其中包含私钥和订阅凭据。
+
+### 2. 安装过程失败时
+
+`install.sh` 在修改系统配置前会自动调用 `backup.sh`。如果安装中途失败，退出处理函数会尝试恢复原项目目录、sing-box 配置、项目 Nginx 站点和订阅目录，并撤销本次安装新增且记录在 journal 中的 UFW 规则。
+
+自动回退完成后，仍应检查：
+
+```bash
+sudo systemctl status sing-box --no-pager
+sudo systemctl status nginx --no-pager
+sudo ./healthcheck.sh
+```
+
+自动回退是尽力恢复，不代表所有系统状态都已恢复。
+
+### 3. 安装成功后需要手动回退
+
+如果升级已经成功，但新版本运行异常，可使用升级前的备份恢复。先确认备份目录和实际项目目录，再执行以下命令。**请把示例中的路径替换为本机实际值，不要直接照抄占位路径。**
+
+```bash
+sudo -i
+
+# 改成当前项目实际安装目录
+PROJECT_DIR="/opt/my-vpn"
+
+# 改成升级前创建的备份目录
+BACKUP_DIR="/var/backups/my-vpn/YYYYMMDD-HHMMSS"
+
+test -d "$BACKUP_DIR/opt-my-vpn" || {
+  echo "项目备份不存在，停止回退"
+  exit 1
+}
+
+systemctl stop sing-box
+
+# 保留当前故障版本，避免回退后无法排查
+if [ -d "$PROJECT_DIR" ]; then
+  mv "$PROJECT_DIR" "${PROJECT_DIR}.failed.$(date +%Y%m%d-%H%M%S)"
+fi
+mkdir -p "$PROJECT_DIR"
+cp -a "$BACKUP_DIR/opt-my-vpn/." "$PROJECT_DIR/"
+
+# 恢复 sing-box 配置；如果备份前不存在该配置，则移除本次新增的项目配置
+if [ -f "$BACKUP_DIR/.had-sing-box-config" ]; then
+  install -d -m 700 /etc/sing-box
+  cp -a "$BACKUP_DIR/etc-sing-box/config.json" /etc/sing-box/config.json
+elif [ -f /etc/sing-box/config.json ] && grep -q 'myvpn-vless-reality-in' /etc/sing-box/config.json; then
+  rm -f /etc/sing-box/config.json
+fi
+
+# 恢复项目管理的 Nginx 站点
+if [ -f "$BACKUP_DIR/.had-nginx-available" ]; then
+  cp -a "$BACKUP_DIR/etc-nginx-sites-available/my-vpn-subscription" /etc/nginx/sites-available/my-vpn-subscription
+elif [ -f /etc/nginx/sites-available/my-vpn-subscription ] && grep -q 'managed-by-my-vpn' /etc/nginx/sites-available/my-vpn-subscription; then
+  rm -f /etc/nginx/sites-available/my-vpn-subscription
+fi
+
+if [ -f "$BACKUP_DIR/.had-nginx-enabled" ]; then
+  cp -a "$BACKUP_DIR/etc-nginx-sites-enabled/my-vpn-subscription" /etc/nginx/sites-enabled/my-vpn-subscription
+elif [ -L /etc/nginx/sites-enabled/my-vpn-subscription ] && [ "$(readlink -f /etc/nginx/sites-enabled/my-vpn-subscription || true)" = "/etc/nginx/sites-available/my-vpn-subscription" ]; then
+  rm -f /etc/nginx/sites-enabled/my-vpn-subscription
+fi
+
+# 恢复订阅文件目录
+if [ -f "$BACKUP_DIR/.had-public-dir" ]; then
+  rm -rf /var/www/my-vpn
+  mkdir -p /var/www/my-vpn
+  cp -a "$BACKUP_DIR/var-www-my-vpn/." /var/www/my-vpn/
+elif [ -f /var/www/my-vpn/.myvpn-managed ]; then
+  rm -f /var/www/my-vpn/subscribe.txt /var/www/my-vpn/subscribe.txt.new /var/www/my-vpn/.myvpn-managed
+  rmdir /var/www/my-vpn 2>/dev/null || true
+fi
+
+# 校验并启动服务
+nginx -t && systemctl reload nginx
+systemctl enable sing-box
+systemctl restart sing-box
+"$PROJECT_DIR/healthcheck.sh"
+```
+
+如果恢复命令中途失败，不要继续删除故障版本目录；先检查报错和备份内容。
+
+### 4. 回退范围与限制
+
+- 上述流程恢复的是项目文件、运行配置、sing-box 配置、项目 Nginx 站点和订阅文件。
+- `backup.sh` 保存的 UFW、iptables、nftables 内容是**诊断快照，不是自动恢复脚本**。不要直接用快照覆盖整台机器的防火墙规则，以免影响其他服务。
+- 安装失败时，`install.sh` 会通过本次运行的 firewall journal 撤销本次新增的项目 UFW 规则；安装成功后的手动回退，需要根据实际规则谨慎处理。
+- 云厂商安全组不由脚本管理，端口规则需要在云控制台单独检查和调整。
+- 备份不包含系统软件包、sing-box 二进制文件、完整系统服务定义或整台 VPS 镜像。如果系统软件或系统环境本身损坏，应使用 VPS 快照或云盘快照恢复。
+- `uninstall.sh` 会先自动备份再删除项目管理的配置和项目目录；卸载后仍可按本节恢复，但需要先重新准备必要的软件和服务环境。
+
+
 ## 客户端文件
 
 - `client/vless.txt`：复制整条 `vless://` 链接导入 Shadowrocket。
