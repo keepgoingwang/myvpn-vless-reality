@@ -184,7 +184,7 @@ rules:
 YAML
   HY2_NAME_ENC="$(jq -rn --arg value "$HY2_NODE_NAME" '$value|@uri')"
   HY2_URI="hysteria2://${HY2_PASSWORD}@${PUBLIC_IP}:${HY2_PORT}/?insecure=1&sni=${HY2_SERVER_NAME}#${HY2_NAME_ENC}"
-  printf '%s\\n' "$HY2_URI" > "$CLIENT_DIR/hy2.txt"
+  printf '%s\n' "$HY2_URI" > "$CLIENT_DIR/hy2.txt"
   chmod 600 "$CLIENT_DIR/hy2.txt"
   jq -n --arg server "$PUBLIC_IP" --arg password "$HY2_PASSWORD" --arg server_name "$HY2_SERVER_NAME" --argjson port "$HY2_PORT" \
     '{log:{level:"info"},inbounds:[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:2080}],outbounds:[{type:"hysteria2",tag:"proxy",server:$server,server_port:$port,password:$password,tls:{enabled:true,server_name:$server_name,insecure:true}},{type:"direct",tag:"direct"}],route:{final:"proxy"}}' > "$CLIENT_DIR/hy2-sing-box.json"
